@@ -176,8 +176,7 @@ class PatchDiscriminator(nn.Module):
         x = self.conv3(x)
         x = self.conv4(x)
         x = self.conv5(x)
-        x = x.view(-1, 32*32)
-        x = x.mean(x, dim=1)
+        x = x.view(x.size(0), -1).mean(1).view(x.size(0))
         return x
 
 
@@ -201,7 +200,7 @@ class Classifier(nn.Module):
         )
         self.conv4 = nn.Sequential( #[BS,128,32,32]->[BS,256,16,16]
             nn.Conv2d(128, 256, 4, stride=2, padding=1),
-            nn.BatchNorm2d(128),
+            nn.BatchNorm2d(256),
             nn.LeakyReLU(0.2)
         )
         self.conv5 = nn.Sequential( #[BS,256,16,16]->[BS,512,8,8]
