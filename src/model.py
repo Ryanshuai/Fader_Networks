@@ -83,32 +83,32 @@ class AutoEncoder(nn.Module):
 
         self.conv1 = nn.Sequential( #[BS,256,256,3]->[BS,128,128,32]
             nn.Conv2d(3, 32, 4, stride=2, padding=1),
-            nn.LeakyReLU()
+            nn.LeakyReLU(0.2)
         )
         self.conv2 = nn.Sequential( #[BS,128,128,32]->[BS,64,64,64]
             nn.Conv2d(32, 64, 4, stride=2, padding=1),
             nn.BatchNorm2d(64),
-            nn.LeakyReLU()
+            nn.LeakyReLU(0.2)
         )
         self.conv3 = nn.Sequential( #[BS,64,64,64]->[BS,32,32,128]
             nn.Conv2d(64, 128, 4, stride=2, padding=1),
             nn.BatchNorm2d(128),
-            nn.LeakyReLU()
+            nn.LeakyReLU(0.2)
         )
         self.conv4 = nn.Sequential( #[BS,32,32,128]->[BS,16,16,256]
             nn.Conv2d(128, 256, 4, stride=2, padding=1),
             nn.BatchNorm2d(256),
-            nn.LeakyReLU()
+            nn.LeakyReLU(0.2)
         )
         self.conv5 = nn.Sequential( #[BS,16,16,256]->[BS,8,8,512]
             nn.Conv2d(256, 512, 4, stride=2, padding=1),
             nn.BatchNorm2d(512),
-            nn.LeakyReLU()
+            nn.LeakyReLU(0.2)
         )
         self.conv6 = nn.Sequential( #[BS,8,8,512]->[BS,4,4,512]
             nn.Conv2d(512, 512, 4, stride=2, padding=1),
             nn.BatchNorm2d(512),
-            nn.LeakyReLU()
+            nn.LeakyReLU(0.2)
         )
 
         self.deconv1 = nn.Sequential( #[BS,4,4,512+y_num]->[BS,8,8,512]
@@ -153,23 +153,17 @@ class AutoEncoder(nn.Module):
     def decode(self, z, y):
         bs = z.size(0)
         y = y.unsqueeze(2).unsqueeze(3)
-        x = [z, y.expand(bs, self.y_dim, 4, 4)]
-        x = torch.cat(x, 1)
+        x = torch.cat([z, y.expand(bs, self.y_dim, 4, 4)], 1)
         x = self.deconv1(x)
-        x = [x, y.expand(bs, self.y_dim, 8, 8)]
-        x = torch.cat(x, 1)
+        x = torch.cat([x, y.expand(bs, self.y_dim, 8, 8)], 1)
         x = self.deconv2(x)
-        x = [x, y.expand(bs, self.y_dim, 16, 16)]
-        x = torch.cat(x, 1)
+        x = torch.cat([x, y.expand(bs, self.y_dim, 16, 16)], 1)
         x = self.deconv3(x)
-        x = [x, y.expand(bs, self.y_dim, 32, 32)]
-        x = torch.cat(x, 1)
+        x = torch.cat([x, y.expand(bs, self.y_dim, 32, 32)], 1)
         x = self.deconv4(x)
-        x = [x, y.expand(bs, self.y_dim, 64, 64)]
-        x = torch.cat(x, 1)
+        x = torch.cat([x, y.expand(bs, self.y_dim, 64, 64)], 1)
         x = self.deconv5(x)
-        x = [x, y.expand(bs, self.y_dim, 128, 128)]
-        x = torch.cat(x, 1)
+        x = torch.cat([x, y.expand(bs, self.y_dim, 128, 128)], 1)
         x = self.deconv6(x)
         return x
 
@@ -181,114 +175,137 @@ class AutoEncoder(nn.Module):
 
 class LatentDiscriminator(nn.Module):
 
-    def __init__(self, params):
+    def __init__(self, y_dim):
+        self.y_dim = y_dim
         super(LatentDiscriminator, self).__init__()
-
-        self.img_sz = params.img_sz
-        self.img_fm = params.img_fm
-        self.init_fm = params.init_fm
-        self.max_fm = params.max_fm
-        self.n_layers = params.n_layers
-        self.n_skip = params.n_skip
-        self.hid_dim = params.hid_dim
-        self.dropout = params.lat_dis_dropout
-        self.attr = params.attr
-        self.n_attr = params.n_attr
-
-        self.n_dis_layers = int(np.log2(self.img_sz))
-        self.conv_in_sz = self.img_sz / (2 ** (self.n_layers - self.n_skip))
-        self.conv_in_fm = min(self.init_fm * (2 ** (self.n_layers - self.n_skip - 1)), self.max_fm)
-        self.conv_out_fm = min(self.init_fm * (2 ** (self.n_dis_layers - 1)), self.max_fm)
-
-        # discriminator layers are identical to encoder, but convolve until size 1
-        enc_layers, _ = build_layers(self.img_sz, self.img_fm, self.init_fm, self.max_fm,
-                                     self.n_dis_layers, self.n_attr, 0, 'convtranspose',
-                                     False, self.dropout, 0)
-
-        self.conv_layers = nn.Sequential(*(enc_layers[self.n_layers - self.n_skip:]))
-        self.proj_layers = nn.Sequential(
-            nn.Linear(self.conv_out_fm, self.hid_dim),
-            nn.LeakyReLU(0.2, inplace=True),
-            nn.Linear(self.hid_dim, self.n_attr)
+        self.conv1 = nn.Sequential( #[bs,512,4,4]–>[bs,512,2,2]
+            nn.Conv2d(512, 512, 4, stride=2, padding=1),
+            nn.BatchNorm2d(512),
+            nn.LeakyReLU(0.2),
+            nn.Dropout2d(0.3)
+        )
+        self.conv2 = nn.Sequential( #[bs,512,2,2]–>[bs,512,1,1]
+            nn.Conv2d(512, 512, 4, stride=2, padding=1),
+            nn.BatchNorm2d(512),
+            nn.LeakyReLU(0.2),
+            nn.Dropout2d(0.3)
+        )
+        self.fc1 = nn.Sequential( #[bs,512] ->[bs,512]
+            nn.Linear(512, 512),
+            nn.LeakyReLU(0.2)
+        )
+        self.fc2 = nn.Sequential( #[bs,512] ->[bs,y_dim]
+            nn.Linear(512, self.y_dim),
         )
 
-    def forward(self, x):
-        assert x.size()[1:] == (self.conv_in_fm, self.conv_in_sz, self.conv_in_sz)
-        conv_output = self.conv_layers(x)
-        assert conv_output.size() == (x.size(0), self.conv_out_fm, 1, 1)
-        return self.proj_layers(conv_output.view(x.size(0), self.conv_out_fm))
-
+    def forward(self, z):
+        x = self.conv1(z)
+        x = self.conv2(x)
+        x = x.view(-1, 512)
+        x = self.fc1(x)
+        x = self.fc2(x)
+        return x
 
 class PatchDiscriminator(nn.Module):
-    def __init__(self, params):
+    def __init__(self):
         super(PatchDiscriminator, self).__init__()
+        self.conv1 = nn.Sequential( #[BS,3,256,256]->[BS,32,128,128]
+            nn.Conv2d(3, 32, 4, stride=2, padding=1),
+            nn.LeakyReLU(0.2)
+        )
+        self.conv2 = nn.Sequential( #[BS,32,128,128]->[BS,64,64,64]
+            nn.Conv2d(32, 64, 4, stride=2, padding=1),
+            nn.BatchNorm2d(64),
+            nn.LeakyReLU(0.2)
+        )
+        self.conv3 = nn.Sequential( #[BS,64,64,64]->[BS,128,32,32]
+            nn.Conv2d(64, 128, 4, stride=2, padding=1),
+            nn.BatchNorm2d(128),
+            nn.LeakyReLU(0.2)
+        )
+        self.conv4 = nn.Sequential( #[BS,128,32,32]->BS,256,32,32]
+            nn.Conv2d(128, 256, 4, stride=1, padding=1),
+            nn.BatchNorm2d(256),
+            nn.LeakyReLU(0.2)
+        )
+        self.conv5 = nn.Sequential( #[BS,256,32,32]->[BS,1,32,32]
+            nn.Conv2d(256, 1, 4, stride=1, padding=1),
+            nn.Sigmoid()
+        )
 
-        self.img_sz = params.img_sz
-        self.img_fm = params.img_fm
-        self.init_fm = params.init_fm
-        self.max_fm = params.max_fm
-        self.n_patch_dis_layers = 3
-
-        layers = []
-        layers.append(nn.Conv2d(self.img_fm, self.init_fm, kernel_size=4, stride=2, padding=1))
-        layers.append(nn.LeakyReLU(0.2, True))
-
-        n_in = self.init_fm
-        n_out = min(2 * n_in, self.max_fm)
-
-        for n in range(self.n_patch_dis_layers):
-            stride = 1 if n == self.n_patch_dis_layers - 1 else 2
-            layers.append(nn.Conv2d(n_in, n_out, kernel_size=4, stride=stride, padding=1))
-            layers.append(nn.BatchNorm2d(n_out))
-            layers.append(nn.LeakyReLU(0.2, inplace=True))
-            if n < self.n_patch_dis_layers - 1:
-                n_in = n_out
-                n_out = min(2 * n_out, self.max_fm)
-
-        layers.append(nn.Conv2d(n_out, 1, kernel_size=4, stride=1, padding=1))
-        layers.append(nn.Sigmoid())
-
-        self.layers = nn.Sequential(*layers)
-
-    def forward(self, x):
-        assert x.dim() == 4
-        return self.layers(x).view(x.size(0), -1).mean(1).view(x.size(0))
-
+    def forward(self, X):
+        x = self.conv1(X)
+        x = self.conv2(x)
+        x = self.conv3(x)
+        x = self.conv4(x)
+        x = self.conv5(x)
+        x = x.view(x.size(0), -1).mean(1).view(x.size(0))
+        return x
 
 class Classifier(nn.Module):
 
-    def __init__(self, params):
+    def __init__(self, y_dim):
         super(Classifier, self).__init__()
-
-        self.img_sz = params.img_sz
-        self.img_fm = params.img_fm
-        self.init_fm = params.init_fm
-        self.max_fm = params.max_fm
-        self.hid_dim = params.hid_dim
-        self.attr = params.attr
-        self.n_attr = params.n_attr
-
-        self.n_clf_layers = int(np.log2(self.img_sz))
-        self.conv_out_fm = min(self.init_fm * (2 ** (self.n_clf_layers - 1)), self.max_fm)
-
-        # classifier layers are identical to encoder, but convolve until size 1
-        enc_layers, _ = build_layers(self.img_sz, self.img_fm, self.init_fm, self.max_fm,
-                                     self.n_clf_layers, self.n_attr, 0, 'convtranspose',
-                                     False, 0, 0)
-
-        self.conv_layers = nn.Sequential(*enc_layers)
-        self.proj_layers = nn.Sequential(
-            nn.Linear(self.conv_out_fm, self.hid_dim),
-            nn.LeakyReLU(0.2, inplace=True),
-            nn.Linear(self.hid_dim, self.n_attr)
+        self.conv1 = nn.Sequential( #[BS,3,256,256]->[BS,32,128,128]
+            nn.Conv2d(3, 32, 4, stride=2, padding=1),
+            nn.LeakyReLU(0.2)
+        )
+        self.conv2 = nn.Sequential( #[BS,32,128,128]->[BS,64,64,64]
+            nn.Conv2d(32, 64, 4, stride=2, padding=1),
+            nn.BatchNorm2d(64),
+            nn.LeakyReLU(0.2)
+        )
+        self.conv3 = nn.Sequential( #[BS,64,64,64]->[BS,128,32,32]
+            nn.Conv2d(64, 128, 4, stride=2, padding=1),
+            nn.BatchNorm2d(128),
+            nn.LeakyReLU(0.2)
+        )
+        self.conv4 = nn.Sequential( #[BS,128,32,32]->[BS,256,16,16]
+            nn.Conv2d(128, 256, 4, stride=2, padding=1),
+            nn.BatchNorm2d(256),
+            nn.LeakyReLU(0.2)
+        )
+        self.conv5 = nn.Sequential( #[BS,256,16,16]->[BS,512,8,8]
+            nn.Conv2d(256, 512, 4, stride=2, padding=1),
+            nn.BatchNorm2d(512),
+            nn.LeakyReLU(0.2)
+        )
+        self.conv6 = nn.Sequential( #[BS,512,8,8]->[BS,512,4,4]
+            nn.Conv2d(512, 512, 4, stride=2, padding=1),
+            nn.BatchNorm2d(512),
+            nn.LeakyReLU(0.2)
+        )
+        self.conv7 = nn.Sequential( #[BS,512,4,4]->[BS,512,2,2]
+            nn.Conv2d(512, 512, 4, stride=2, padding=1),
+            nn.BatchNorm2d(512),
+            nn.LeakyReLU(0.2)
+        )
+        self.conv8 = nn.Sequential( #[BS,512,2,2]->[BS,512,1,1]
+            nn.Conv2d(512, 512, 4, stride=2, padding=1),
+            nn.BatchNorm2d(512),
+            nn.LeakyReLU(0.2)
+        )
+        self.fc1 = nn.Sequential( #[BS,512]->[BS,512]
+            nn.Linear(512, 512),
+            nn.LeakyReLU(0.2)
+        )
+        self.fc2 = nn.Sequential( #[BS,512]->[BS,y_dim]
+            nn.Linear(512, y_dim)
         )
 
-    def forward(self, x):
-        assert x.size()[1:] == (self.img_fm, self.img_sz, self.img_sz)
-        conv_output = self.conv_layers(x)
-        assert conv_output.size() == (x.size(0), self.conv_out_fm, 1, 1)
-        return self.proj_layers(conv_output.view(x.size(0), self.conv_out_fm))
-
+    def forward(self, X):
+        x = self.conv1(X)
+        x = self.conv2(x)
+        x = self.conv3(x)
+        x = self.conv4(x)
+        x = self.conv5(x)
+        x = self.conv6(x)
+        x = self.conv7(x)
+        x = self.conv8(x)
+        x = x.view(-1, 512)
+        x = self.fc1(x)
+        x = self.fc2(x)
+        return x
 
 def get_attr_loss(output, attributes, flip, params):
     """

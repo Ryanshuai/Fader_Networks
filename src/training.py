@@ -183,14 +183,14 @@ class Trainer(object):
             dec_output_flipped = self.ae.decode(enc_output, flipped)
         # autoencoder loss from the patch discriminator # 根ptc_dis_step中产生对抗训练
         if params.lambda_ptc_dis:
-            ptc_dis_preds = self.ptc_dis(dec_output_flipped[-1])
+            ptc_dis_preds = self.ptc_dis(dec_output_flipped)
             y_fake = Variable(torch.FloatTensor(ptc_dis_preds.size())
                                    .fill_(params.smooth_label).cuda())
             ptc_dis_loss = F.binary_cross_entropy(ptc_dis_preds, 1 - y_fake) # 让编码器和解码器产生的新数据更加真实
             loss = loss + get_lambda(params.lambda_ptc_dis, params) * ptc_dis_loss
         # autoencoder loss from the classifier discriminator
         if params.lambda_clf_dis:
-            clf_dis_preds = self.clf_dis(dec_output_flipped[-1])
+            clf_dis_preds = self.clf_dis(dec_output_flipped)
             clf_dis_loss = get_attr_loss(clf_dis_preds, flipped, False, params) #让编码器和解码器产生的新数据在分类上和y相近
             loss = loss + get_lambda(params.lambda_clf_dis, params) * clf_dis_loss
         # check NaN
