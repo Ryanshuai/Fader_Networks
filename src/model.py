@@ -12,9 +12,72 @@ from torch.autograd import Variable
 from torch.nn import functional as F
 
 
+def build_layers(img_sz, img_fm, init_fm, max_fm, n_layers, n_attr, n_skip,
+                 deconv_method, instance_norm, enc_dropout, dec_dropout):
+    """
+    Build auto-encoder layers.
+    """
+    assert init_fm <= max_fm
+    assert n_skip <= n_layers - 1
+    assert np.log2(img_sz).is_integer()
+    assert n_layers <= int(np.log2(img_sz))
+    assert type(instance_norm) is bool
+    assert 0 <= enc_dropout < 1
+    assert 0 <= dec_dropout < 1
+    norm_fn = nn.InstanceNorm2d if instance_norm else nn.BatchNorm2d
+
+    enc_layers = []
+    dec_layers = []
+
+    n_in = img_fm
+    n_out = init_fm
+
+    for i in range(n_layers):
+        enc_layer = []
+        dec_layer = []
+        skip_connection = n_layers - (n_skip + 1) <= i < n_layers - 1
+        n_dec_in = n_out + n_attr + (n_out if skip_connection else 0)
+        n_dec_out = n_in
+
+        # encoder layer
+        enc_layer.append(nn.Conv2d(n_in, n_out, 4, 2, 1))
+        if i > 0:
+            enc_layer.append(norm_fn(n_out, affine=True))
+        enc_layer.append(nn.LeakyReLU(0.2, inplace=True))
+        if enc_dropout > 0:
+            enc_layer.append(nn.Dropout(enc_dropout))
+
+        # decoder layer
+        if deconv_method == 'upsampling':
+            dec_layer.append(nn.UpsamplingNearest2d(scale_factor=2))
+            dec_layer.append(nn.Conv2d(n_dec_in, n_dec_out, 3, 1, 1))
+        elif deconv_method == 'convtranspose':
+            dec_layer.append(nn.ConvTranspose2d(n_dec_in, n_dec_out, 4, 2, 1, bias=False))
+        else:
+            assert deconv_method == 'pixelshuffle'
+            dec_layer.append(nn.Conv2d(n_dec_in, n_dec_out * 4, 3, 1, 1))
+            dec_layer.append(nn.PixelShuffle(2))
+        if i > 0:
+            dec_layer.append(norm_fn(n_dec_out, affine=True))
+            if dec_dropout > 0 and i >= n_layers - 3:
+                dec_layer.append(nn.Dropout(dec_dropout))
+            dec_layer.append(nn.ReLU(inplace=True))
+        else:
+            dec_layer.append(nn.Tanh())
+
+        # update
+        n_in = n_out
+        n_out = min(2 * n_out, max_fm)
+        enc_layers.append(nn.Sequential(*enc_layer))
+        dec_layers.insert(0, nn.Sequential(*dec_layer))
+
+    return enc_layers, dec_layers
+
+
 class AutoEncoder(nn.Module):
 
     def __init__(self, y_dim): #这里的y是[0,1]或是[1,0]标签的维数 2倍原来
+        self.y_dim = y_dim
 
         super(AutoEncoder, self).__init__()
 
@@ -49,32 +112,32 @@ class AutoEncoder(nn.Module):
         )
 
         self.deconv1 = nn.Sequential( #[BS,4,4,512+y_num]->[BS,8,8,512]
-            nn.ConvTranspose2d(512 + y_dim, 512, 4, stride=2, padding=1),
+            nn.ConvTranspose2d(512 + self.y_dim, 512, 4, stride=2, padding=1),
             nn.BatchNorm2d(512),
             nn.ReLU()
         )
         self.deconv2 = nn.Sequential( #[BS,8,8,512+y_num]->[BS,16,16,256]
-            nn.ConvTranspose2d(512 + y_dim, 256, 4, stride=2, padding=1),
+            nn.ConvTranspose2d(512 + self.y_dim, 256, 4, stride=2, padding=1),
             nn.BatchNorm2d(256),
             nn.ReLU()
         )
         self.deconv3 = nn.Sequential( #[BS,16,16,256+y_num]->[BS,32,32,128]
-            nn.ConvTranspose2d(256 + y_dim, 128, 4, stride=2, padding=1),
+            nn.ConvTranspose2d(256 + self.y_dim, 128, 4, stride=2, padding=1),
             nn.BatchNorm2d(128),
             nn.ReLU()
         )
         self.deconv4 = nn.Sequential( #[BS,32,32,128+y_num]->[BS,64,64,64]
-            nn.ConvTranspose2d(128 + y_dim, 64, 4, stride=2, padding=1),
+            nn.ConvTranspose2d(128 + self.y_dim, 64, 4, stride=2, padding=1),
             nn.BatchNorm2d(64),
             nn.ReLU()
         )
         self.deconv5 = nn.Sequential( #[BS,64,64,64+y_num]->[BS,128,128,32]
-            nn.ConvTranspose2d(64 + y_dim, 32, 4, stride=2, padding=1),
+            nn.ConvTranspose2d(64 + self.y_dim, 32, 4, stride=2, padding=1),
             nn.BatchNorm2d(32),
             nn.ReLU()
         )
         self.deconv6 = nn.Sequential( #[BS,128,128,32+y_num]->[BS,256,256,3]
-            nn.ConvTranspose2d(32 + y_dim, 3, 4, stride=2, padding=1),
+            nn.ConvTranspose2d(32 + self.y_dim, 3, 4, stride=2, padding=1),
             nn.Tanh()
         )
 
@@ -113,25 +176,26 @@ class AutoEncoder(nn.Module):
 class LatentDiscriminator(nn.Module):
 
     def __init__(self, y_dim):
+        self.y_dim = y_dim
         super(LatentDiscriminator, self).__init__()
-        self.conv1 = nn.Sequential( #[BS,512,4,4]–>[BS,512,2,2]
+        self.conv1 = nn.Sequential( #[bs,512,4,4]–>[bs,512,2,2]
             nn.Conv2d(512, 512, 4, stride=2, padding=1),
             nn.BatchNorm2d(512),
             nn.LeakyReLU(0.2),
             nn.Dropout2d(0.3)
         )
-        self.conv2 = nn.Sequential( #[BS,512,2,2]–>[BS,512,1,1]
+        self.conv2 = nn.Sequential( #[bs,512,2,2]–>[bs,512,1,1]
             nn.Conv2d(512, 512, 4, stride=2, padding=1),
             nn.BatchNorm2d(512),
             nn.LeakyReLU(0.2),
             nn.Dropout2d(0.3)
         )
-        self.fc1 = nn.Sequential( #[BS,512] ->[BS,512]
+        self.fc1 = nn.Sequential( #[bs,512] ->[bs,512]
             nn.Linear(512, 512),
             nn.LeakyReLU(0.2)
         )
-        self.fc2 = nn.Sequential( #[BS,512] ->[BS,y_dim]
-            nn.Linear(512, y_dim),
+        self.fc2 = nn.Sequential( #[bs,512] ->[bs,y_dim]
+            nn.Linear(512, self.y_dim),
         )
 
     def forward(self, z):
@@ -141,7 +205,6 @@ class LatentDiscriminator(nn.Module):
         x = self.fc1(x)
         x = self.fc2(x)
         return x
-
 
 class PatchDiscriminator(nn.Module):
     def __init__(self):
@@ -176,10 +239,8 @@ class PatchDiscriminator(nn.Module):
         x = self.conv3(x)
         x = self.conv4(x)
         x = self.conv5(x)
-        x = x.view(-1, 32*32)
-        x = x.mean(x, dim=1)
+        x = x.view(x.size(0), -1).mean(1).view(x.size(0))
         return x
-
 
 class Classifier(nn.Module):
 
@@ -201,7 +262,7 @@ class Classifier(nn.Module):
         )
         self.conv4 = nn.Sequential( #[BS,128,32,32]->[BS,256,16,16]
             nn.Conv2d(128, 256, 4, stride=2, padding=1),
-            nn.BatchNorm2d(128),
+            nn.BatchNorm2d(256),
             nn.LeakyReLU(0.2)
         )
         self.conv5 = nn.Sequential( #[BS,256,16,16]->[BS,512,8,8]
@@ -245,7 +306,6 @@ class Classifier(nn.Module):
         x = self.fc1(x)
         x = self.fc2(x)
         return x
-
 
 def get_attr_loss(output, attributes, flip, params):
     """

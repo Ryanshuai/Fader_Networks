@@ -46,9 +46,9 @@ parser.add_argument("--lat_dis_dropout", type=float, default=0.3,
                     help="Dropout in the latent discriminator")
 parser.add_argument("--n_lat_dis", type=int, default=1,
                     help="Number of latent discriminator training steps")
-parser.add_argument("--n_ptc_dis", type=int, default=0,
+parser.add_argument("--n_ptc_dis", type=int, default=1,
                     help="Number of patch discriminator training steps")
-parser.add_argument("--n_clf_dis", type=int, default=0,
+parser.add_argument("--n_clf_dis", type=int, default=1,
                     help="Number of classifier discriminator training steps")
 parser.add_argument("--smooth_label", type=float, default=0.2,
                     help="Smooth label for patch discriminator")
@@ -56,9 +56,9 @@ parser.add_argument("--lambda_ae", type=float, default=1,
                     help="Autoencoder loss coefficient")
 parser.add_argument("--lambda_lat_dis", type=float, default=0.0001,
                     help="Latent discriminator loss feedback coefficient")
-parser.add_argument("--lambda_ptc_dis", type=float, default=0,
+parser.add_argument("--lambda_ptc_dis", type=float, default=0.0001,
                     help="Patch discriminator loss feedback coefficient")
-parser.add_argument("--lambda_clf_dis", type=float, default=0,
+parser.add_argument("--lambda_clf_dis", type=float, default=0.0001,
                     help="Classifier discriminator loss feedback coefficient")
 parser.add_argument("--lambda_schedule", type=float, default=500000,
                     help="Progressively increase discriminators' lambdas (0 to disable)")
@@ -76,7 +76,7 @@ parser.add_argument("--clip_grad_norm", type=float, default=5,
                     help="Clip gradient norms (0 to disable)")
 parser.add_argument("--n_epochs", type=int, default=1000,
                     help="Total number of epochs")
-parser.add_argument("--epoch_size", type=int, default=50000,
+parser.add_argument("--epoch_size", type=int, default=64,
                     help="Number of samples per epoch")
 parser.add_argument("--ae_reload", type=str, default="",
                     help="Reload a pretrained encoder")
@@ -86,9 +86,9 @@ parser.add_argument("--ptc_dis_reload", type=str, default="",
                     help="Reload a pretrained patch discriminator")
 parser.add_argument("--clf_dis_reload", type=str, default="",
                     help="Reload a pretrained classifier discriminator")
-parser.add_argument("--eval_clf", type=str, default="",
+parser.add_argument("--eval_clf", type=str, default="models/classifier256.pth",
                     help="Load an external classifier for evaluation")
-parser.add_argument("--debug", type=bool_flag, default=False,
+parser.add_argument("--debug", type=bool_flag, default=True,
                     help="Debug mode (only load a subset of the whole dataset)")
 params = parser.parse_args()
 

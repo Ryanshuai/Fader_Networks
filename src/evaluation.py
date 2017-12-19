@@ -47,8 +47,8 @@ class Evaluator(object):
         costs = []
         for i in range(0, len(data), bs):
             batch_x, batch_y = data.eval_batch(i, i + bs)
-            _, dec_outputs = self.ae(batch_x, batch_y)
-            costs.append(((dec_outputs[-1] - batch_x) ** 2).mean().data[0])
+            _, dec_output = self.ae(batch_x, batch_y)
+            costs.append(((dec_output - batch_x) ** 2).mean().data[0])
 
         return np.mean(costs)
 
@@ -65,8 +65,8 @@ class Evaluator(object):
         all_preds = [[] for _ in range(len(params.attr))]
         for i in range(0, len(data), bs):
             batch_x, batch_y = data.eval_batch(i, i + bs)
-            enc_outputs = self.ae.encode(batch_x)
-            preds = self.lat_dis(enc_outputs[-1 - params.n_skip]).data.cpu()
+            enc_output = self.ae.encode(batch_x)
+            preds = self.lat_dis(enc_output).data.cpu()
             update_predictions(all_preds, preds, batch_y.data.cpu(), params)
 
         return [np.mean(x) for x in all_preds]
@@ -88,10 +88,10 @@ class Evaluator(object):
             # batch / encode / decode
             batch_x, batch_y = data.eval_batch(i, i + bs)
             flipped = flip_attributes(batch_y, params, 'all')
-            _, dec_outputs = self.ae(batch_x, flipped)
+            _, dec_output = self.ae(batch_x, flipped)
             # predictions
             real_preds.extend(self.ptc_dis(batch_x).data.tolist())
-            fake_preds.extend(self.ptc_dis(dec_outputs[-1]).data.tolist())
+            fake_preds.extend(self.ptc_dis(dec_output).data.tolist())
 
         return real_preds, fake_preds
 
@@ -109,15 +109,15 @@ class Evaluator(object):
         for i in range(0, len(data), bs):
             # batch / encode / decode
             batch_x, batch_y = data.eval_batch(i, i + bs)
-            enc_outputs = self.ae.encode(batch_x)
+            enc_output = self.ae.encode(batch_x)
             # flip all attributes one by one
             k = 0
             for j, (_, n_cat) in enumerate(params.attr):
                 for value in range(n_cat):
                     flipped = flip_attributes(batch_y, params, j, new_value=value)
-                    dec_outputs = self.ae.decode(enc_outputs, flipped)
+                    dec_output = self.ae.decode(enc_output, flipped)
                     # classify
-                    clf_dis_preds = self.clf_dis(dec_outputs[-1])[:, j:j + n_cat].max(1)[1].view(-1)
+                    clf_dis_preds = self.clf_dis(dec_output)[:, j:j + n_cat].max(1)[1].view(-1)
                     all_preds[k].extend((clf_dis_preds.data.cpu() == value).tolist())
                     k += 1
             assert k == params.n_attr
@@ -142,15 +142,15 @@ class Evaluator(object):
         for i in range(0, len(data), bs):
             # batch / encode / decode
             batch_x, batch_y = data.eval_batch(i, i + bs)
-            enc_outputs = self.ae.encode(batch_x)
+            enc_output = self.ae.encode(batch_x)
             # flip all attributes one by one
             k = 0
             for j, (_, n_cat) in enumerate(params.attr):
                 for value in range(n_cat):
                     flipped = flip_attributes(batch_y, params, j, new_value=value)
-                    dec_outputs = self.ae.decode(enc_outputs, flipped)
+                    dec_output = self.ae.decode(enc_output, flipped)
                     # classify
-                    clf_preds = self.eval_clf(dec_outputs[-1])[:, idx[j]:idx[j] + n_cat].max(1)[1].view(-1)
+                    clf_preds = self.eval_clf(dec_output)[:, idx[j]:idx[j] + n_cat].max(1)[1].view(-1)
                     all_preds[k].extend((clf_preds.data.cpu() == value).tolist())
                     k += 1
             assert k == params.n_attr
@@ -205,18 +205,18 @@ class Evaluator(object):
             logger.info('Classifier discriminator accuracy:')
             print_accuracies(log_clf_dis)
 
-        # classifier accuracy
-        log_clf = []
-        clf_accu = self.eval_clf_accuracy()
-        k = 0
-        log_clf += [('clf_accu', np.mean(clf_accu))]
-        for name, n_cat in params.attr:
-            log_clf.append(('clf_accu_%s' % name, np.mean(clf_accu[k:k + n_cat])))
-            log_clf.extend([('clf_accu_%s_%i' % (name, j), clf_accu[k + j])
-                            for j in range(n_cat)])
-            k += n_cat
-        logger.info('Classifier accuracy:')
-        print_accuracies(log_clf)
+        # # classifier accuracy
+        # log_clf = []
+        # clf_accu = self.eval_clf_accuracy()
+        # k = 0
+        # log_clf += [('clf_accu', np.mean(clf_accu))]
+        # for name, n_cat in params.attr:
+        #     log_clf.append(('clf_accu_%s' % name, np.mean(clf_accu[k:k + n_cat])))
+        #     log_clf.extend([('clf_accu_%s_%i' % (name, j), clf_accu[k + j])
+        #                     for j in range(n_cat)])
+        #     k += n_cat
+        # logger.info('Classifier accuracy:')
+        # print_accuracies(log_clf)
 
         # log autoencoder loss
         logger.info('Autoencoder loss: %.5f' % ae_loss)
@@ -225,7 +225,7 @@ class Evaluator(object):
         to_log = dict([
             ('n_epoch', n_epoch),
             ('ae_loss', ae_loss)
-        ] + log_lat_dis + log_ptc_dis + log_clf_dis + log_clf)
+        ] + log_lat_dis + log_ptc_dis + log_clf_dis)# + log_clf)
         logger.debug("__log__:%s" % json.dumps(to_log))
 
         return to_log
