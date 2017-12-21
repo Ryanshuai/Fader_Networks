@@ -109,6 +109,7 @@ assert params.lambda_lat_dis == 0 or params.n_lat_dis > 0
 assert params.lambda_ptc_dis == 0 or params.n_ptc_dis > 0
 assert params.lambda_clf_dis == 0 or params.n_clf_dis > 0
 
+logger = initialize_exp(params)
 # load Dataset
 train_dataset = Dataset(params,'train')
 val_dataset = Dataset(params, 'val')

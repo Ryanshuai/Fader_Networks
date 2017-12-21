@@ -50,32 +50,32 @@ class AutoEncoder(nn.Module):
         )
 
         self.deconv1 = nn.Sequential( #[BS,4,4,512+y_num]->[BS,8,8,512]
-            nn.ConvTranspose2d(512 + y_dim, 512, 4, stride=2, padding=1),
+            nn.ConvTranspose2d(512 + 2 * y_dim, 512, 4, stride=2, padding=1),
             nn.BatchNorm2d(512),
             nn.ReLU()
         )
         self.deconv2 = nn.Sequential( #[BS,8,8,512+y_num]->[BS,16,16,256]
-            nn.ConvTranspose2d(512 + y_dim, 256, 4, stride=2, padding=1),
+            nn.ConvTranspose2d(512 + 2 * y_dim, 256, 4, stride=2, padding=1),
             nn.BatchNorm2d(256),
             nn.ReLU()
         )
         self.deconv3 = nn.Sequential( #[BS,16,16,256+y_num]->[BS,32,32,128]
-            nn.ConvTranspose2d(256 + y_dim, 128, 4, stride=2, padding=1),
+            nn.ConvTranspose2d(256 + 2 * y_dim, 128, 4, stride=2, padding=1),
             nn.BatchNorm2d(128),
             nn.ReLU()
         )
         self.deconv4 = nn.Sequential( #[BS,32,32,128+y_num]->[BS,64,64,64]
-            nn.ConvTranspose2d(128 + y_dim, 64, 4, stride=2, padding=1),
+            nn.ConvTranspose2d(128 + 2 * y_dim, 64, 4, stride=2, padding=1),
             nn.BatchNorm2d(64),
             nn.ReLU()
         )
         self.deconv5 = nn.Sequential( #[BS,64,64,64+y_num]->[BS,128,128,32]
-            nn.ConvTranspose2d(64 + y_dim, 32, 4, stride=2, padding=1),
+            nn.ConvTranspose2d(64 + 2 * y_dim, 32, 4, stride=2, padding=1),
             nn.BatchNorm2d(32),
             nn.ReLU()
         )
         self.deconv6 = nn.Sequential( #[BS,128,128,32+y_num]->[BS,256,256,3]
-            nn.ConvTranspose2d(32 + y_dim, 3, 4, stride=2, padding=1),
+            nn.ConvTranspose2d(32 + 2 * y_dim, 3, 4, stride=2, padding=1),
             nn.Tanh()
         )
 
@@ -92,17 +92,17 @@ class AutoEncoder(nn.Module):
         BS = z.size(0)
         y = y.view(BS, -1)
         y = y.unsqueeze(2).unsqueeze(3)
-        x = torch.cat([z, y.expand(BS, self.y_dim, 4, 4)], 1)
+        x = torch.cat([z, y.expand(BS, 2 * self.y_dim, 4, 4)], 1)
         x = self.deconv1(x)
-        x = torch.cat([x, y.expand(BS, self.y_dim, 8, 8)], 1)
+        x = torch.cat([x, y.expand(BS, 2 * self.y_dim, 8, 8)], 1)
         x = self.deconv2(x)
-        x = torch.cat([x, y.expand(BS, self.y_dim, 16, 16)], 1)
+        x = torch.cat([x, y.expand(BS, 2 * self.y_dim, 16, 16)], 1)
         x = self.deconv3(x)
-        x = torch.cat([x, y.expand(BS, self.y_dim, 32, 32)], 1)
+        x = torch.cat([x, y.expand(BS, 2 * self.y_dim, 32, 32)], 1)
         x = self.deconv4(x)
-        x = torch.cat([x, y.expand(BS, self.y_dim, 64, 64)], 1)
+        x = torch.cat([x, y.expand(BS, 2 * self.y_dim, 64, 64)], 1)
         x = self.deconv5(x)
-        x = torch.cat([x, y.expand(BS, self.y_dim, 128, 128)], 1)
+        x = torch.cat([x, y.expand(BS, 2 * self.y_dim, 128, 128)], 1)
         x = self.deconv6(x)
         return x
 
@@ -115,6 +115,7 @@ class AutoEncoder(nn.Module):
 class LatentDiscriminator(nn.Module):
 
     def __init__(self, y_dim):
+        self.y_dim = y_dim
         super(LatentDiscriminator, self).__init__()
         self.conv1 = nn.Sequential( #[BS,512,4,4]–>[BS,512,2,2]
             nn.Conv2d(512, 512, 4, stride=2, padding=1),
@@ -133,7 +134,7 @@ class LatentDiscriminator(nn.Module):
             nn.LeakyReLU(0.2)
         )
         self.fc2 = nn.Sequential( #[BS,512] ->[BS,y_dim]
-            nn.Linear(512, y_dim),
+            nn.Linear(512, y_dim * 2),
         )
 
     def forward(self, z):
@@ -141,7 +142,7 @@ class LatentDiscriminator(nn.Module):
         x = self.conv2(x)
         x = x.view(-1, 512)
         x = self.fc1(x)
-        x = self.fc2(x)
+        x = self.fc2(x).view(-1, self.y_dim , 2)
         return x
 
 
@@ -185,6 +186,7 @@ class PatchDiscriminator(nn.Module):
 class Classifier(nn.Module):
 
     def __init__(self, y_dim):
+        self.y_dim = y_dim
         super(Classifier, self).__init__()
         self.conv1 = nn.Sequential( #[BS,3,256,256]->[BS,32,128,128]
             nn.Conv2d(3, 32, 4, stride=2, padding=1),
@@ -230,7 +232,7 @@ class Classifier(nn.Module):
             nn.LeakyReLU(0.2)
         )
         self.fc2 = nn.Sequential( #[BS,512]->[BS,y_dim]
-            nn.Linear(512, y_dim)
+            nn.Linear(512, y_dim * 2)
         )
 
     def forward(self, X):
@@ -244,5 +246,5 @@ class Classifier(nn.Module):
         x = self.conv8(x)
         x = x.view(-1, 512)
         x = self.fc1(x)
-        x = self.fc2(x)
+        x = self.fc2(x).view(-1, self.y_dim, 2)
         return x

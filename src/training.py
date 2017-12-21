@@ -12,28 +12,7 @@ from torch.autograd import Variable
 from torch.nn import functional as F
 from logging import getLogger
 
-from .utils import get_optimizer, clip_grad_norm, get_lambda, reload_model, get_rand_attributes
-
-
-def get_attr_loss(output, attributes, flip, params):
-    """
-    Compute attributes loss.
-    """
-    assert type(flip) is bool
-    k = 0
-    loss = 0
-    for (_, n_cat) in params.attr:
-        # categorical
-        x = output[:, k:k + n_cat].contiguous()
-        y = attributes[:, k:k + n_cat].max(1)[1].view(-1)
-        if flip:
-            # generate different categories
-            shift = torch.LongTensor(y.size()).random_(n_cat - 1) + 1
-            y = (y + Variable(shift.cuda())) % n_cat
-        loss += F.cross_entropy(x, y)
-        k += n_cat
-    return loss
-
+from .utils import get_optimizer, clip_grad_norm, get_lambda, reload_model, get_rand_attributes,softmax_cross_entropy
 
 logger = getLogger()
 
@@ -126,7 +105,7 @@ class Trainer(object):
         enc_output = self.ae.encode(Variable(batch_x, volatile=True)) #只训练discriminator，所以volatile
         preds = self.lat_dis(Variable(enc_output.data))
         # loss / optimize
-        loss = get_attr_loss(preds, Variable(batch_y), False, params) #训练lat_dis的预测结果接近batch_y
+        loss = softmax_cross_entropy(preds, Variable(batch_y)) #训练lat_dis的预测结果接近batch_y
         self.stats['lat_dis_costs'].append(loss.data[0])
         self.lat_dis_optimizer.zero_grad()
         loss.backward()
@@ -140,20 +119,19 @@ class Trainer(object):
         """
         # 判断迭代器是否为空, 不空则取值
         try:
-            batch_x, batch_y = next(self.data_iter)
+            batch_x, _ = next(self.data_iter)
         except StopIteration:
             self.data_iter = iter(self.data)
-            batch_x, batch_y = next(self.data_iter)
+            batch_x, _ = next(self.data_iter)
 
-        batch_x, batch_y = batch_x.cuda(), batch_y.cuda()
+        batch_x = batch_x.cuda()
 
         params = self.params
         self.ae.eval()
         self.ptc_dis.train()
         bs = params.batch_size
         # batch / encode / discriminate
-        flipped = get_rand_attributes(bs, int(params.n_attr/2))
-        flipped = flipped.view(bs, -1)
+        flipped = get_rand_attributes(bs, int(params.n_attr))
         _, dec_output = self.ae(Variable(batch_x, volatile=True), flipped)
         real_preds = self.ptc_dis(Variable(batch_x))
         fake_preds = self.ptc_dis(Variable(dec_output.data))
@@ -187,7 +165,7 @@ class Trainer(object):
 
         preds = self.clf_dis(Variable(batch_x))
         # loss / optimize
-        loss = get_attr_loss(preds, Variable(batch_y), False, params)
+        loss = softmax_cross_entropy(preds, Variable(batch_y))
         self.stats['clf_dis_costs'].append(loss.data[0])
         self.clf_dis_optimizer.zero_grad()
         loss.backward()
@@ -226,12 +204,12 @@ class Trainer(object):
         # encoder loss from the latent discriminator #大概是本文的终极奥义的地方
         if params.lambda_lat_dis:
             lat_dis_preds = self.lat_dis(enc_output)
-            lat_dis_loss = get_attr_loss(lat_dis_preds, Variable(batch_y), True, params) #让编码器去掉属性
+            flipped = batch_y.add(1) % 2  # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! 标签翻转
+            lat_dis_loss = softmax_cross_entropy(lat_dis_preds, Variable(flipped)) #让编码器去掉属性
             loss = loss + get_lambda(params.lambda_lat_dis, params) * lat_dis_loss
         # decoding with random labels #这里是生成随机的y
         if params.lambda_ptc_dis + params.lambda_clf_dis > 0:
-            flipped = get_rand_attributes(bs, int(params.n_attr/2))
-            flipped = flipped.view(bs, -1)
+            flipped = get_rand_attributes(bs, int(params.n_attr))
             dec_output_flipped = self.ae.decode(enc_output, flipped)
         # autoencoder loss from the patch discriminator # 根ptc_dis_step中产生对抗训练
         if params.lambda_ptc_dis:
@@ -243,7 +221,7 @@ class Trainer(object):
         # autoencoder loss from the classifier discriminator
         if params.lambda_clf_dis:
             clf_dis_preds = self.clf_dis(dec_output_flipped)
-            clf_dis_loss = get_attr_loss(clf_dis_preds, flipped, False, params) #让编码器和解码器产生的新数据在分类上和y相近
+            clf_dis_loss = softmax_cross_entropy(clf_dis_preds, flipped) #让编码器和解码器产生的新数据在分类上和y相近
             loss = loss + get_lambda(params.lambda_clf_dis, params) * clf_dis_loss
         # check NaN
         if (loss != loss).data.any():

@@ -5,7 +5,7 @@ import cv2
 import numpy as np
 
 class Dataset(data.Dataset):
-    def __init__(self, params, train_eval = 'train'):
+    def __init__(self, params, train_eval = 'train', one_hot = Tr):
         # 一条example 为 图像文件名和对应的属性
         # 读取样本的图像文件名和属性
 
@@ -23,11 +23,17 @@ class Dataset(data.Dataset):
             one_img_filename = img_path + "/" + line_content[0]  # data/train/img/000001.jpg
             one_img_attrs = [] # 一副图像的所有属性，如Smiling和Male属性
             for name, _ in params.attr:
-                if float(line_content[attr_all_names.index(name) + 1]) == 1.:
-                    one_img_attrs += [1]
+                if one_hot:
+                    if float(line_content[attr_all_names.index(name) + 1]) == 1.:
+                        one_img_attrs.append([0,1])
+                    else:
+                        one_img_attrs.append([1,0])
                 else:
-                    one_img_attrs += [0]
-            examples.append((one_img_filename, one_img_attrs)) # [(data/train/img/000001.jpg,[0.,1.,1.,0.]), ((data/train/img/000002.jpg,[0.,1.,1.,0.])),...]
+                    if float(line_content[attr_all_names.index(name) + 1]) == 1.:
+                        one_img_attrs += [1]
+                    else:
+                        one_img_attrs += [0]
+            examples.append((one_img_filename, np.array(one_img_attrs)))  # [(data/train/img/000001.jpg,[0.,1.,1.,0.]), ((data/train/img/000002.jpg,[0.,1.,1.,0.])),...]
         self.examples = examples
         self.train = True if train_eval == 'train' else False
         self.param = params
